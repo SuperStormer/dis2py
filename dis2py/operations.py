@@ -86,6 +86,33 @@ class Continue(Operation):
 	def __str__(self):
 		return "continue"
 
+class Import(Operation):
+	def __init__(self, module, alias=None):
+		self.module = module
+		self.alias = alias
+	
+	def __str__(self):
+		alias_str = "" if self.alias is None else f" as {self.alias}"
+		return f"import {self.module}{alias_str}"
+
+class FromImport(Operation):
+	def __init__(self, module, vals):
+		self.module = module
+		self.vals = vals
+	
+	def __str__(self):
+		return f"from {self.module} import {','.join(map(str,self.vals))}"
+
+class Raise(Operation):
+	def __init__(self, exception=None, cause=None):
+		self.exception = exception
+		self.cause = cause
+	
+	def __str__(self):
+		exception_str = "" if self.exception is None else f" {self.exception}"
+		cause_str = "" if self.cause is None else f" from {self.cause}"
+		return f"raise{exception_str}{cause_str}"
+
 _build_operators = {"list": "[]", "tuple": "()", "set": "{}"}
 
 def build_operation(operation):

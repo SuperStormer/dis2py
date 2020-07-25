@@ -1,7 +1,9 @@
 import re
-from dataclasses import dataclass
-from . import operations
 from ast import literal_eval
+from dataclasses import dataclass
+
+from . import operations
+
 COMPREHENSION = 0b1
 GEN_EXPR=0b10
 @dataclass
@@ -193,7 +195,7 @@ def instructions_to_asts(instructions, flags=0):
 			if jump_target > instruction.offset:
 				indent_changes.append((jump_target, -1))
 				for instruction2 in instructions:
-					if instruction2.offset==jump_target-2:
+					if instruction2.offset==jump_target-2 and instruction2.opname =="JUMP_ABSOLUTE" and instruction2.arg<instruction.offset:
 						#instruction before jump target jumps above us; this is a while loop
 						push(operations.WhileLoop(val))
 						break
@@ -230,6 +232,42 @@ def instructions_to_asts(instructions, flags=0):
 			indent += 2
 			jump_target = int(instruction.argval[len("to "):])
 			indent_changes.append((jump_target, -1))
+		elif opname == "IMPORT_NAME":
+			fromlist=pop()
+			level=int(pop().val)
+			if level==0: #absolute import
+				next_op = instructions[i+1]
+				if is_store(next_op):
+					i+=1
+					alias = next_op.argval if next_op.argval!=instruction.argval else None
+					push(operations.Import(instruction.argval,alias))
+				elif next_op.opname == "IMPORT_FROM":
+					names = []
+					i+=1
+					while next_op.opname == "IMPORT_FROM":
+						i+=1
+						assign_op=instructions[i]
+						names.append(assign_op.argval)
+						i+=1
+						next_op=instructions[i]
+						print(next_op)
+					i-=1
+					push(operations.FromImport(instruction.argval,names))
+				elif next_op.opname == "IMPORT_STAR":
+					i+=1
+					push(operations.FromImport(instruction.argval,[operations.Value("*")]))
+				else:
+					push_invalid(instruction)
+			else:#TODO:relative import
+				push_invalid(instruction)
+		elif opname == "RAISE_VARARGS":
+			argc = instruction.arg
+			if argc==0:
+				push(operations.Raise())
+			elif argc==1:
+				push(operations.Raise(pop()))
+			else:
+				push(operations.Raise(pop(),pop()))					
 		elif opname in ("CALL_FUNCTION", "CALL_METHOD"):
 			argc = int(instruction.arg)
 			args = pop_n(argc)
@@ -260,12 +298,10 @@ def instructions_to_asts(instructions, flags=0):
 				args = pop()
 				func = pop()
 				push(operations.FunctionCall(func, [operations.UnpackSeq(args)]))
-		elif opname == "MAKE_FUNCTION":  
-			# list comps, lambdas and nested functions
+		elif opname == "MAKE_FUNCTION": # list comps, lambdas and nested functions
 			pop()
 			push(operations.Value(get_code_obj_name(pop().val)))
-		elif opname in ("LIST_APPEND", "SET_ADD"):
-			#used in comprehensions
+		elif opname in ("LIST_APPEND", "SET_ADD"): #used in comprehensions
 			func = opname[opname.index("_") + 1:].lower()
 			if is_comp:
 				push(
@@ -276,8 +312,7 @@ def instructions_to_asts(instructions, flags=0):
 				)
 			else:
 				push_invalid(instruction)
-		elif opname == "MAP_ADD":
-			#used in dict comprehensions
+		elif opname == "MAP_ADD": #used in dict comprehensions
 			if is_comp:
 				key = pop()
 				val = pop()
@@ -286,8 +321,7 @@ def instructions_to_asts(instructions, flags=0):
 				push_invalid(instruction)
 		elif opname == "UNPACK_SEQUENCE":
 			push(operations.UnpackSeq(pop()))
-		elif opname == "UNPACK_EX":  
-			# unpacking assignment
+		elif opname == "UNPACK_EX": # unpacking assignment
 			num_vals_before = instruction.arg & 0xff
 			num_vals_after = (instruction.arg >> 8) & 0xff  #high byte
 			num_vals = num_vals_before + num_vals_after
@@ -355,14 +389,14 @@ def instructions_to_asts(instructions, flags=0):
 		i += 1
 	return (ast,arg_names)
 
-def asts_to_code(asts):
+def asts_to_code(asts,tab_char="\t"):
 	""" converts an ast into python code"""
-	return "\n".join("\t" * indent + str(ast) for indent, ast in asts)
+	return "\n".join(tab_char * indent + str(ast) for indent, ast in asts)
 
-def decompile(disasm, flags=0):
+def decompile(disasm, flags=0,tab_char="\t"):
 	instructions = dis_to_instructions(disasm)
 	asts,arg_names = instructions_to_asts(instructions, flags)
-	return asts_to_code(asts),arg_names
+	return asts_to_code(asts,tab_char),arg_names
 
 def split_funcs(disasm):
 	""" splits out comprehensions from the main func or functions from the module"""
@@ -392,13 +426,13 @@ def get_flags(name):
 		return COMPREHENSION
 	else:
 		return 0
-def decompile_all(disasm):
+def decompile_all(disasm,tab_char="\t"):
 	disasm = re.sub(r"^#.*\n?", "", disasm, re.MULTILINE).strip()  # ignore comments
 	for name, func in split_funcs(disasm):
-		yield name, *decompile(func, get_flags(name))
+		yield name, *decompile(func, get_flags(name),tab_char)
 
-def pretty_decompile(disasm):
+def pretty_decompile(disasm,tab_char="\t"):
 	ret = []
-	for name, code,arg_names in decompile_all(disasm):
-		ret.append(f"def {name}({','.join(arg_names)}):\n" + "\n".join("\t" + line for line in code.split("\n")))
+	for name, code,arg_names in decompile_all(disasm,tab_char):
+		ret.append(f"def {name}({','.join(arg_names)}):\n" + "\n".join(tab_char + line for line in code.split("\n")))
 	return "\n".join(ret)
