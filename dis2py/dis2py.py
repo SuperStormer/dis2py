@@ -49,10 +49,14 @@ def dis_to_instructions(disasm):
 def is_store(instruction):
 	return instruction.opname in ("STORE_FAST", "STORE_NAME", "STORE_GLOBAL")
 
+def is_identifier(s:str):
+	return str.isidentifier(s) and s not in ("True","False","None")
 def instructions_to_asts(instructions, is_comp=False):
 	""" converts list of instruction into an AST"""
-	temp_name = "__comp_temp"  # name of temporary list/set/etc for comprehensions
+	temp_name = "__temp"  # name of temporary list/set/etc for comprehensions
 	indent = 0
+	arg_names = []
+	var_names = []
 	# list of all future changes in indentation (caused by loops,if,etc). format is (offset,change)
 	indent_changes = []
 	ast = []
@@ -99,9 +103,19 @@ def instructions_to_asts(instructions, is_comp=False):
 		if opname in ("LOAD_METHOD", "LOAD_ATTRIBUTE"):
 			push(operations.Attribute(pop(), instruction.argval))
 		elif opname.startswith("LOAD"):
-			push(operations.Value(instruction.argval))
+			var_name = instruction.argval
+			if var_name.startswith(".") and is_comp:
+				var_name="__"+var_name[1:]
+			if is_identifier(var_name):
+				if opname != "LOAD_GLOBAL" and var_name not in var_names:
+					arg_names.append(var_name)
+				var_names.append(var_name)
+			push(operations.Value(var_name))
 		elif is_store(instruction):
-			push(operations.Assign(instruction.argval, pop()))
+			var_name = instruction.argval
+			if is_identifier(var_name):
+				var_names.append(var_name)
+			push(operations.Assign(var_name, pop()))
 		elif opname == "YIELD_VALUE":
 			push(operations.Yield(pop()))
 		elif opname == "RETURN_VALUE":
@@ -136,6 +150,7 @@ def instructions_to_asts(instructions, is_comp=False):
 			i += 1
 			if is_store(assign_op):
 				index = assign_op.argval
+				var_names.append(index)
 				#print(indent_changes)
 				push(operations.ForLoop(index, iterator))
 				indent += 1
@@ -146,10 +161,14 @@ def instructions_to_asts(instructions, is_comp=False):
 				num_vals = assign_op.arg
 				assign_ops = instructions[i + 1:i + num_vals + 1]
 				i += num_vals  #skip all stores
-				
+				indicies = []
+				for op in assign_ops:
+					var_name=op.argval
+					var_names.append(var_name)
+					indicies.append(var_name)
 				push(
 					operations.ForLoop(
-					operations.build_operation("tuple")([op.argval for op in assign_ops]), iterator
+					operations.build_operation("tuple")(indicies), iterator
 					)
 				)
 				indent += 1
@@ -265,9 +284,15 @@ def instructions_to_asts(instructions, is_comp=False):
 				assign_ops.append(instructions[i + j + 1])
 			
 			i += num_vals  #skip all stores
+			names = []
+			for op in assign_ops:
+				var_name=op.argval
+				var_names.append(var_name)
+				names.append(var_name)
+				
 			push(
 				operations.Assign(
-				operations.build_operation("tuple")([op.argval for op in assign_ops]), pop()
+				operations.build_operation("tuple")(names), pop()
 				)
 			)
 		elif opname == "COMPARE_OP":
@@ -307,7 +332,7 @@ def instructions_to_asts(instructions, is_comp=False):
 		if i == 0 and is_comp:  #give the temporary for list comps a name
 			push(operations.Assign(operations.Value(temp_name), pop()))
 		i += 1
-	return ast
+	return (ast,arg_names)
 
 def asts_to_code(asts):
 	""" converts an ast into python code"""
@@ -315,8 +340,8 @@ def asts_to_code(asts):
 
 def decompile(disasm, is_comp=False):
 	instructions = dis_to_instructions(disasm)
-	asts = instructions_to_asts(instructions, is_comp)
-	return asts_to_code(asts)
+	asts,arg_names = instructions_to_asts(instructions, is_comp)
+	return asts_to_code(asts),arg_names
 
 def split_funcs(disasm):
 	""" splits out comprehensions from the main func or functions from the module"""
@@ -344,10 +369,10 @@ def decompile_all(disasm):
 	disasm = re.sub(r"^#.*\n?", "", disasm, re.MULTILINE).strip()  # ignore comments
 	for name, func in split_funcs(disasm):
 		is_comp = "comp" in name
-		yield name, decompile(func, is_comp)
+		yield name, *decompile(func, is_comp)
 
 def pretty_decompile(disasm):
 	ret = []
-	for name, code in decompile_all(disasm):
-		ret.append(f"def {name}():\n" + "\n".join("\t" + line for line in code.split("\n")))
+	for name, code,arg_names in decompile_all(disasm):
+		ret.append(f"def {name}({','.join(arg_names)}):\n" + "\n".join("\t" + line for line in code.split("\n")))
 	return "\n".join(ret)
