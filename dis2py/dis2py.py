@@ -51,7 +51,7 @@ def dis_to_instructions(disasm):
 	return instructions
 
 def is_store(instruction):
-	return instruction.opname in ("STORE_FAST", "STORE_NAME", "STORE_GLOBAL")
+	return instruction.opname in ("STORE_FAST", "STORE_NAME", "STORE_GLOBAL","STORE_DEREF")
 
 def is_identifier(s:str):
 	return str.isidentifier(s) and s not in ("True","False","None")
@@ -106,7 +106,7 @@ def instructions_to_asts(instructions, flags=0):
 					to_remove.append(indent_change)
 			for indent_change in to_remove:
 				indent_changes.remove(indent_change)
-		if opname in ("LOAD_METHOD", "LOAD_ATTRIBUTE"):
+		if opname in ("LOAD_METHOD", "LOAD_ATTR"):
 			push(operations.Attribute(pop(), instruction.argval))
 		elif opname.startswith("LOAD"):
 			var_name = instruction.argval
@@ -194,13 +194,30 @@ def instructions_to_asts(instructions, flags=0):
 			jump_target = int(instruction.arg)
 			if jump_target > instruction.offset:
 				indent_changes.append((jump_target, -1))
+				print(instruction,indent_changes)
 				for instruction2 in instructions:
-					if instruction2.offset==jump_target-2 and instruction2.opname =="JUMP_ABSOLUTE" and instruction2.arg<instruction.offset:
-						#instruction before jump target jumps above us; this is a while loop
-						push(operations.WhileLoop(val))
-						break
-				else: # this is a normal if	
-					push(operations.If(val))
+					if instruction2.offset==jump_target-2:
+						is_while=False
+						if instruction2.opname =="JUMP_ABSOLUTE" and instruction2.arg<instruction.offset:
+							for instruction3 in instructions:
+								if instruction3.offset>instruction.offset:
+									break
+								if instruction3.offset >= instruction2.arg and (instruction3.opname.startswith("POP_JUMP") or instruction3.opname=="FOR_ITER"):
+									#either a if statement that is last statement in a loop or a while loop
+									is_while=instruction3.offset == instruction.offset
+									break
+							if is_while:	
+								#instruction before jump target jumps above us and no POP_JUMPs between;
+								# this is a while loop
+								push(operations.WhileLoop(val))
+						if not is_while: # this is a normal if
+							if ast and isinstance(peek(),operations.Else):
+								pop()
+								indent-=1
+								push(operations.Elif(val))
+							else:	
+								push(operations.If(val))
+						break	
 			else:  
 				# this is a if statement that is the last statement in a for loop, 
 				# so it jumps directly to the top of the for loop, so we dedent the JUMP_ABSOLUTE again
@@ -209,6 +226,7 @@ def instructions_to_asts(instructions, flags=0):
 			indent += 1
 		elif opname == "JUMP_ABSOLUTE":
 			# used for many things, including continue, break, and jumping to the top of a loop
+			#TODO: handle while loop break/continue
 			jump_target = int(instruction.arg)
 			for instruction2 in instructions:
 				if instruction2.offset == jump_target:
@@ -299,8 +317,15 @@ def instructions_to_asts(instructions, flags=0):
 				func = pop()
 				push(operations.FunctionCall(func, [operations.UnpackSeq(args)]))
 		elif opname == "MAKE_FUNCTION": # list comps, lambdas and nested functions
-			pop()
-			push(operations.Value(get_code_obj_name(pop().val)))
+			flags = instruction.arg
+			pop() # qualified name
+			code_obj = pop()
+			func_name = get_code_obj_name(code_obj.val)
+			if flags&8:
+				closure_vars = pop().args
+				push(operations.Closure(func_name,closure_vars))
+			else:
+				push(operations.Value(func_name))
 		elif opname in ("LIST_APPEND", "SET_ADD"): #used in comprehensions
 			func = opname[opname.index("_") + 1:].lower()
 			if is_comp:

@@ -74,6 +74,13 @@ class If(Operation):
 	def __str__(self):
 		return f"if {self.val}:"
 
+class Elif(Operation):
+	def __init__(self, val):
+		self.val = val
+	
+	def __str__(self):
+		return f"elif {self.val}:"
+
 class Else(Operation):
 	def __str__(self):
 		return "else:"
@@ -147,6 +154,15 @@ class FunctionCall(Operation):
 		kwargs = [f"{k}={v}" for k, v in self.kwargs.items()]
 		return f"{self.func}({','.join(map(str,self.args+kwargs))})"
 
+class Closure(Operation):
+	def __init__(self, func, closure_vars):
+		self.func = func
+		self.closure_vars = closure_vars
+	
+	def __str__(self):
+		arg_str = ','.join(map(str, self.closure_vars))
+		return f"(lambda {arg_str},*args,**kwargs:{self.func}({arg_str},*args,**kwargs))"
+
 class Attribute(Operation):
 	def __init__(self, obj, prop):
 		self.prop = prop
@@ -208,11 +224,15 @@ class Subscript(Operation):
 		return f"{self.val}[{self.subscript}]"
 
 def binary_op_to_str(left, right, operator):
-	if isinstance(left, (Value, Subscript, SubscriptSlice, FunctionCall)):  #drop the parens
+	if isinstance(
+		left, (Value, Subscript, SubscriptSlice, Attribute, FunctionCall)
+	):  #drop the parens
 		left_str = str(left)
 	else:
 		left_str = f"({left})"
-	if isinstance(right, (Value, Subscript, SubscriptSlice, FunctionCall)):  #drop the parens
+	if isinstance(
+		right, (Value, Subscript, SubscriptSlice, Attribute, FunctionCall)
+	):  #drop the parens
 		right_str = str(right)
 	else:
 		right_str = f"({right})"
@@ -241,7 +261,7 @@ def unary_operation(operation: str):
 		
 		def __str__(self):
 			if isinstance(
-				self.val, (Value, Subscript, SubscriptSlice, FunctionCall)
+				self.val, (Value, Subscript, SubscriptSlice, Attribute, FunctionCall)
 			):  #drop the parens
 				val_str = str(self.val)
 			else:
