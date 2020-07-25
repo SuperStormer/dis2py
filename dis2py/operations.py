@@ -60,6 +60,13 @@ class ForLoop(Operation):
 	def __str__(self):
 		return f"for {self.index} in {self.iterator}:"
 
+class WhileLoop(Operation):
+	def __init__(self, val):
+		self.val = val
+	
+	def __str__(self):
+		return f"while {self.val}:"
+
 class If(Operation):
 	def __init__(self, val):
 		self.val = val
@@ -186,7 +193,10 @@ def binary_op_to_str(left, right, operator):
 
 class Comparison(Operation):
 	def __init__(self, operator, left, right):
-		self.operator = operator
+		if operator in ("not in", "in"):
+			self.operator = f" {operator} "
+		else:
+			self.operator = operator
 		self.left = left
 		self.right = right
 	
