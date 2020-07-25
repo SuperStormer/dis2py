@@ -1,1 +1,1 @@
-from .pyasm import *
+from .dis2py import *

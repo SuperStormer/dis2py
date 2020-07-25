@@ -114,7 +114,7 @@ class FunctionCall(Operation):
 		return f"{self.func}({','.join(map(str,self.args+kwargs))})"
 
 class Attribute(Operation):
-	def __init__(self, prop, obj):
+	def __init__(self, obj, prop):
 		self.prop = prop
 		self.obj = obj
 	
@@ -127,6 +127,20 @@ class Iter(Operation):
 	
 	def __str__(self):
 		return f"iter({self.val})"
+
+class UnpackSeq(Operation):
+	def __init__(self, val):
+		self.val = val
+	
+	def __str__(self):
+		return f"*{self.val}"
+
+class UnpackDict(Operation):
+	def __init__(self, val):
+		self.val = val
+	
+	def __str__(self):
+		return f"**{self.val}"
 
 class Slice(Operation):
 	def __init__(self, start, stop, step=None):
@@ -146,16 +160,29 @@ class SubscriptSlice(Operation):
 		self.step = step
 	
 	def __str__(self):
+		start_str = self.start if self.start is not None else ""
+		stop_str = self.stop if self.stop is not None else ""
 		step_str = f":{self.step}" if self.step is not None else ""
-		return f"{self.val}[{self.start}:{self.stop}{step_str}]"
+		return f"{self.val}[{start_str}:{stop_str}{step_str}]"
 
-class BinarySubscript(Operation):
+class Subscript(Operation):
 	def __init__(self, val, subscript):
 		self.subscript = subscript
 		self.val = val
 	
 	def __str__(self):
 		return f"{self.val}[{self.subscript}]"
+
+def binary_op_to_str(left, right, operator):
+	if isinstance(left, (Value, Subscript, SubscriptSlice, FunctionCall)):  #drop the parens
+		left_str = str(left)
+	else:
+		left_str = f"({left})"
+	if isinstance(right, (Value, Subscript, SubscriptSlice, FunctionCall)):  #drop the parens
+		right_str = str(right)
+	else:
+		right_str = f"({right})"
+	return left_str + operator + right_str
 
 class Comparison(Operation):
 	def __init__(self, operator, left, right):
@@ -164,7 +191,7 @@ class Comparison(Operation):
 		self.right = right
 	
 	def __str__(self):
-		return f"({self.left}){self.operator}({self.right})"
+		return binary_op_to_str(self.left, self.right, self.operator)
 
 _unary_operators = {"positive": "+", "negative": "-", "not": "not", "invert": "~"}
 
@@ -176,7 +203,13 @@ def unary_operation(operation: str):
 			self.val = val
 		
 		def __str__(self):
-			return f"{operator}({self.val})"
+			if isinstance(
+				self.val, (Value, Subscript, SubscriptSlice, FunctionCall)
+			):  #drop the parens
+				val_str = str(self.val)
+			else:
+				val_str = f"({self.val})"
+			return operator + val_str
 	
 	return UnaryOperation
 
@@ -189,7 +222,6 @@ _binary_operators = {
 	"modulo": "%",
 	"add": "+",
 	"subtract": "-",
-	#subscr
 	"lshift": "<<",
 	"rshift": ">>",
 	"and": "&",
@@ -206,7 +238,7 @@ def binary_operation(operation: str):
 			self.right = right
 		
 		def __str__(self):
-			return f"({self.left}){operator}({self.right})"
+			return binary_op_to_str(self.left, self.right, operator)
 	
 	return BinaryOperation
 
@@ -219,6 +251,6 @@ def inplace_operation(operation: str):
 			self.right = right
 		
 		def __str__(self):
-			return f"{self.left}=(({self.left}){operator}({self.right}))"
+			return f"{self.left}{operator}={self.right}"
 	
 	return InplaceOperation

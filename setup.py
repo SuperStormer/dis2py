@@ -2,7 +2,7 @@ import setuptools
 with open("README.md", "r") as f:
 	long_description = f.read()
 setuptools.setup(
-	name="pyasm",
+	name="dis2py",
 	version="0.1",
 	descripton="converts dis.dis output into python source code",
 	long_description=long_description,
@@ -11,6 +11,6 @@ setuptools.setup(
 	license="MIT",
 	author="SuperStormer",
 	author_email="larry.p.xue@gmail.com",
-	url="https://github.com/SuperStormer/pyasm",
-	project_urls={"Source Code": "https://github.com/SuperStormer/pyasm"}
+	url="https://github.com/SuperStormer/dis2py",
+	project_urls={"Source Code": "https://github.com/SuperStormer/dis2py"}
 )
