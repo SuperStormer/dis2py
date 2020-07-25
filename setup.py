@@ -4,7 +4,7 @@ with open("README.md", "r") as f:
 setuptools.setup(
 	name="pyasm",
 	version="0.1",
-	descripton="assembles dis.dis output into python source code",
+	descripton="converts dis.dis output into python source code",
 	long_description=long_description,
 	long_description_content_type="text/markdown",
 	packages=setuptools.find_packages(),

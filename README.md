@@ -1,3 +1,3 @@
 # pyasm
 
-assembles dis.dis output into python source code
+converts dis.dis output into python source code

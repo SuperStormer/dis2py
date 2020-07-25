@@ -52,6 +52,33 @@ class Yield(Operation):
 	def __str__(self):
 		return f"yield {self.val}"
 
+class ForLoop(Operation):
+	def __init__(self, index, iterator):
+		self.index = index
+		self.iterator = iterator
+	
+	def __str__(self):
+		return f"for {self.index} in {self.iterator}:"
+
+class If(Operation):
+	def __init__(self, val):
+		self.val = val
+	
+	def __str__(self):
+		return f"if {self.val}:"
+
+class Else(Operation):
+	def __str__(self):
+		return "else:"
+
+class Break(Operation):
+	def __str__(self):
+		return "break"
+
+class Continue(Operation):
+	def __str__(self):
+		return "continue"
+
 _build_operators = {"list": "[]", "tuple": "()", "set": "{}"}
 
 def build_operation(operation):
@@ -86,6 +113,14 @@ class FunctionCall(Operation):
 		kwargs = [f"{k}={v}" for k, v in self.kwargs.items()]
 		return f"{self.func}({','.join(map(str,self.args+kwargs))})"
 
+class Attribute(Operation):
+	def __init__(self, prop, obj):
+		self.prop = prop
+		self.obj = obj
+	
+	def __str__(self):
+		return f"{self.obj}.{self.prop}"
+
 class Iter(Operation):
 	def __init__(self, val):
 		self.val = val
@@ -93,21 +128,43 @@ class Iter(Operation):
 	def __str__(self):
 		return f"iter({self.val})"
 
-class ForLoop(Operation):
-	def __init__(self, index, iterator):
-		self.index = index
-		self.iterator = iterator
+class Slice(Operation):
+	def __init__(self, start, stop, step=None):
+		self.start = start
+		self.stop = stop
+		self.step = step
 	
 	def __str__(self):
-		return f"for {self.index} in {self.iterator}:"
+		step_str = f",{self.step}" if self.step is not None else ""
+		return f"slice({self.start},{self.stop}{step_str})"
+
+class SubscriptSlice(Operation):
+	def __init__(self, val, start, stop, step=None):
+		self.val = val
+		self.start = start
+		self.stop = stop
+		self.step = step
+	
+	def __str__(self):
+		step_str = f":{self.step}" if self.step is not None else ""
+		return f"{self.val}[{self.start}:{self.stop}{step_str}]"
 
 class BinarySubscript(Operation):
-	def __init__(self, subscript, val):
+	def __init__(self, val, subscript):
 		self.subscript = subscript
 		self.val = val
 	
 	def __str__(self):
 		return f"{self.val}[{self.subscript}]"
+
+class Comparison(Operation):
+	def __init__(self, operator, left, right):
+		self.operator = operator
+		self.left = left
+		self.right = right
+	
+	def __str__(self):
+		return f"({self.left}){self.operator}({self.right})"
 
 _unary_operators = {"positive": "+", "negative": "-", "not": "not", "invert": "~"}
 
