@@ -53,12 +53,12 @@ class Yield(Operation):
 		return f"yield {self.val}"
 
 class ForLoop(Operation):
-	def __init__(self, index, iterator):
-		self.index = index
+	def __init__(self, indicies, iterator):
+		self.indicies = indicies
 		self.iterator = iterator
 	
 	def __str__(self):
-		return f"for {self.index} in {self.iterator}:"
+		return f"for {','.join(map(str,self.indicies))} in {self.iterator}:"
 
 class WhileLoop(Operation):
 	def __init__(self, val):
