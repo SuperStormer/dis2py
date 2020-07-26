@@ -1,6 +1,6 @@
 # dis2py
 
-converts dis.dis output into python source code
+Converts dis.dis output into Python source code.
 
 ## Example Usage
 

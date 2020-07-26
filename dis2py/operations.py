@@ -120,6 +120,16 @@ class Raise(Operation):
 		cause_str = "" if self.cause is None else f" from {self.cause}"
 		return f"raise{exception_str}{cause_str}"
 
+class Jump(Operation):
+	# for raw jumps flag
+	def __init__(self, target, condition=None):
+		self.target = target
+		self.condition = condition
+	
+	def __str__(self):
+		cond_str = f" if {self.condition}" if self.condition is not None else ""
+		return f"jump {self.target}{cond_str}"
+
 _build_operators = {"list": "[]", "tuple": "()", "set": "{}"}
 
 def build_operation(operation):

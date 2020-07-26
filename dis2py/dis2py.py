@@ -4,9 +4,9 @@ from dataclasses import dataclass
 
 from . import operations
 
-COMPREHENSION = 0b1
-GEN_EXPR = 0b10
-
+COMPREHENSION = 1
+GEN_EXPR = 1 << 2
+RAW_JUMPS = 1 << 3
 @dataclass
 class Instruction:
 	line_num: int
@@ -61,6 +61,7 @@ def instructions_to_asts(instructions, flags=0):
 	""" converts list of instruction into an AST"""
 	is_comp = flags & COMPREHENSION
 	is_genexpr = flags & GEN_EXPR
+	raw_jumps = flags & RAW_JUMPS
 	temp_name = "__temp"  # name of temporary list/set/etc for comprehensions
 	indent = 0
 	arg_names = []
@@ -68,9 +69,12 @@ def instructions_to_asts(instructions, flags=0):
 	# list of all future changes in indentation (caused by loops,if,etc). format is (offset,change)
 	indent_changes = []
 	ast = []
-	
+	instruction = None
 	def push(operation):
-		ast.append((indent, operation))
+		if raw_jumps:
+			ast.append((indent,operation,instruction.offset))
+		else:
+			ast.append((indent, operation))
 	
 	def pop():
 		return ast.pop()[1]
@@ -78,7 +82,10 @@ def instructions_to_asts(instructions, flags=0):
 	def pop_n(n):
 		nonlocal ast
 		if n > 0:  # ast[:-0] would be the empty list and ast[-0:] would be every element in ast
-			ret = [x for _, x in ast[-n:]]
+			if raw_jumps:
+				ret = [x for _, x,_ in ast[-n:]]
+			else:	
+				ret = [x for _, x in ast[-n:]]
 			ast = ast[:-n]
 		else:
 			ret = []
@@ -189,70 +196,84 @@ def instructions_to_asts(instructions, flags=0):
 			if opname.endswith("TRUE"):
 				val = operations.unary_operation("not")(val)
 			jump_target = int(instruction.arg)
-			if jump_target > instruction.offset:
-				indent_changes.append((jump_target, -1))
-				for instruction2 in instructions:
-					if instruction2.offset == jump_target - 2:
-						is_while = False
-						if instruction2.opname == "JUMP_ABSOLUTE" and instruction2.arg < instruction.offset:
-							for instruction3 in instructions:
-								if instruction3.offset > instruction.offset:
-									break
-								if instruction3.offset >= instruction2.arg and (
-									instruction3.opname.startswith("POP_JUMP") or
-									instruction3.opname == "FOR_ITER"
-								):
-									#either a if statement that is last statement in a loop or a while loop
-									is_while = instruction3.offset == instruction.offset
-									break
-							if is_while:
-								#instruction before jump target jumps above us and no POP_JUMPs between;
-								# this is a while loop
-								push(operations.WhileLoop(val))
-						if not is_while:  # this is a normal if
-							if opname == "POP_JUMP_IF_TRUE" and instruction2.opname == "POP_JUMP_IF_FALSE":
-								#TODO: fix if statement with "or" operators
-								pass
-							if ast and isinstance(peek(), operations.Else):
-								pop()
-								indent -= 1
-								push(operations.Elif(val))
-							else:
-								push(operations.If(val))
-						break
-			else:
-				# this is a if statement that is the last statement in a for loop,
-				# so it jumps directly to the top of the for loop, so we dedent the JUMP_ABSOLUTE again
-				dedent_jump_to(jump_target)
-				push(operations.If(val))
-			indent += 1
+			if raw_jumps:
+				val=val.val if opname.endswith("TRUE") else operations.unary_operation("not")(val)
+				push(operations.Jump(jump_target,val))
+			else:	
+				if jump_target > instruction.offset:
+					indent_changes.append((jump_target, -1))
+					for instruction2 in instructions:
+						if instruction2.offset == jump_target - 2:
+							is_while = False
+							if instruction2.opname == "JUMP_ABSOLUTE" and instruction2.arg < instruction.offset:
+								for instruction3 in instructions:
+									if instruction3.offset > instruction.offset:
+										break
+									if instruction3.offset >= instruction2.arg and (
+										instruction3.opname.startswith("POP_JUMP") or
+										instruction3.opname == "FOR_ITER"
+									):
+										#either a if statement that is last statement in a loop or a while loop
+										is_while = instruction3.offset == instruction.offset
+										break
+								if is_while:
+									#instruction before jump target jumps above us and no POP_JUMPs between;
+									# this is a while loop
+									push(operations.WhileLoop(val))
+							if not is_while:  # this is a normal if
+								if opname == "POP_JUMP_IF_TRUE" and instruction2.opname == "POP_JUMP_IF_FALSE":
+									#TODO: fix if statement with "or" operators
+									pass
+								if ast and isinstance(peek(), operations.Else):
+									pop()
+									indent -= 1
+									push(operations.Elif(val))
+								else:
+									push(operations.If(val))
+							break
+				else:
+					# this is a if statement that is the last statement in a for loop,
+					# so it jumps directly to the top of the for loop, so we dedent the JUMP_ABSOLUTE again
+					dedent_jump_to(jump_target)
+					push(operations.If(val))
+				indent += 1
 		elif opname == "JUMP_ABSOLUTE":
 			# used for many things, including continue, break, and jumping to the top of a loop
+			#TODO: continue in while loops
 			jump_target = int(instruction.arg)
-			for instruction2 in instructions:
-				if instruction2.offset == jump_target:
-					if instruction2.opname == "FOR_ITER":
-						loop_end = int(instruction2.argval[len("to "):]) - 2
-						if loop_end != instruction.offset:  # this isn't the end of the loop, but its still jumping, so this is a "continue"
-							if not isinstance(peek(), operations.Break):
-								push(operations.Continue())
-						#otherwise this is a normal jump to the top of the loop, so do nothing
-					else:
-						for instruction3 in instructions:
-							if instruction3.opname == "FOR_ITER" and int(
-								instruction3.argval[len("to "):]
-							) == instruction2.offset:
-								#there is a for loop also jumping to the same spot, so this is a "break"
-								push(operations.Break())
-								break
-					break
+			if raw_jumps:
+				push(operations.Jump(jump_target))
+			else:
+				for instruction2 in instructions:
+					if instruction2.offset == jump_target:
+						if instruction2.opname == "FOR_ITER":
+							loop_end = int(instruction2.argval[len("to "):]) - 2
+							if loop_end != instruction.offset:  # this isn't the end of the loop, but its still jumping, so this is a "continue"
+								if not isinstance(peek(), operations.Break):
+									push(operations.Continue())
+							#otherwise this is a normal jump to the top of the loop, so do nothing
+						else:
+							for instruction3 in instructions:
+								if (instruction3.opname == "FOR_ITER" and int(
+									instruction3.argval[len("to "):]
+								) == instruction2.offset) or (
+									instruction3.opname.startswith("POP_JUMP") and 
+									instruction3.arg == instruction2.offset
+								):
+									#there is a loop also jumping to the same spot, so this is a "break"
+									push(operations.Break())
+									break
+						break
 		elif opname == "JUMP_FORWARD":
 			# used to jump over the else statement from the if statement's branch
-			indent -= 1
-			push(operations.Else())
-			indent += 2
 			jump_target = int(instruction.argval[len("to "):])
-			indent_changes.append((jump_target, -1))
+			if raw_jumps:
+				push(operations.Jump(jump_target))
+			else:
+				indent -= 1
+				push(operations.Else())
+				indent += 2
+				indent_changes.append((jump_target, -1))
 		elif opname == "IMPORT_NAME":
 			fromlist = pop()
 			level = int(pop().val)
@@ -413,14 +434,18 @@ def instructions_to_asts(instructions, flags=0):
 		i += 1
 	return (ast, arg_names)
 
-def asts_to_code(asts, tab_char="\t"):
+def asts_to_code(asts, flags=0,tab_char="\t"):
 	""" converts an ast into python code"""
-	return "\n".join(tab_char * indent + str(ast) for indent, ast in asts)
+	if flags& RAW_JUMPS:
+		max_offset_len = len(str(asts[-1][2]))
+		return "\n".join(str(offset).ljust(max_offset_len," ")  + tab_char * (indent + 1) + str(ast) for indent, ast, offset in asts)
+	else:
+		return "\n".join(tab_char * indent + str(ast) for indent, ast in asts)
 
 def decompile(disasm, flags=0, tab_char="\t"):
 	instructions = dis_to_instructions(disasm)
 	asts, arg_names = instructions_to_asts(instructions, flags)
-	return asts_to_code(asts, tab_char), arg_names
+	return asts_to_code(asts, flags,tab_char), arg_names
 
 def split_funcs(disasm):
 	""" splits out comprehensions from the main func or functions from the module"""
@@ -452,14 +477,14 @@ def get_flags(name):
 	else:
 		return 0
 
-def decompile_all(disasm, tab_char="\t"):
+def decompile_all(disasm,flags=0,tab_char="\t"):
 	disasm = re.sub(r"^#.*\n?", "", disasm, re.MULTILINE).strip()  # ignore comments
 	for name, func in split_funcs(disasm):
-		yield name, *decompile(func, get_flags(name), tab_char)
+		yield name, *decompile(func, get_flags(name)|flags, tab_char)
 
-def pretty_decompile(disasm, tab_char="\t"):
+def pretty_decompile(disasm,flags=0,tab_char="\t"):
 	ret = []
-	for name, code, arg_names in decompile_all(disasm, tab_char):
+	for name, code, arg_names in decompile_all(disasm, flags, tab_char):
 		ret.append(
 			f"def {name}({','.join(arg_names)}):\n" +
 			"\n".join(tab_char + line for line in code.split("\n"))
