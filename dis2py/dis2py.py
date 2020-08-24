@@ -24,11 +24,9 @@ def dis_to_instructions(disasm):
 	""" converts output of dis.dis into list of instructions"""
 	line_num = None
 	instructions = []
-	extended_arg = None
-	has_extended_arg = False
 	for line in disasm.split("\n"):
 		match = re.search(
-			r"( (?P<line_num>\d+)\s+)?(?P<offset>\d+) (?P<opname>[A-Z_]+)(?:\s+(?P<arg>\d+)(?: \((?P<argval>.+)\))?)?",
+			r"( ?(?P<line_num>\d+)[ >]+)?(?P<offset>\d+) (?P<opname>[A-Z_]+)(?:\s+(?P<arg>\d+)(?: \((?P<argval>.+)\))?)?",
 			line
 		)
 		if match is not None:
@@ -41,12 +39,7 @@ def dis_to_instructions(disasm):
 			else:
 				arg = None
 			if opname == "EXTENDED_ARG":
-				extended_arg = arg
-				has_extended_arg = True
 				continue
-			if has_extended_arg:
-				arg |= extended_arg << 8  # set val of high byte
-				has_extended_arg = False
 			argval = match["argval"]
 			instructions.append(Instruction(line_num, offset, opname, arg, argval))
 	return instructions
