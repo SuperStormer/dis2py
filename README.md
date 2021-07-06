@@ -1,3 +1,5 @@
+## NOTE: Use https://github.com/SuperStormer/pyasm instead
+
 # dis2py
 
 Converts dis.dis output into Python source code.
